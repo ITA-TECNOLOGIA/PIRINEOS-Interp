@@ -40,17 +40,6 @@ inputs = tokenizer(input_text, return_tensors="pt")
 input_ids = inputs["input_ids"].to(model.device)
 attention_mask = inputs["attention_mask"].to(model.device)
 
-"""input_text = "What is the derivative of sin(x)?"
-inputs = tokenizer(input_text, return_tensors="pt")
-input_ids = inputs["input_ids"].to(model.device)
-
-# Generate a completion with a specified number of new tokens
-generated_ids = model.generate(input_ids, max_new_tokens=50)
-
-# Decode the full generated sequence (prompt + completion)
-generated_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
-print(generated_text)"""
-
 
 # Define a forward function returning a scalar for attribution
 def forward_func(input_embeds, attention_mask):
