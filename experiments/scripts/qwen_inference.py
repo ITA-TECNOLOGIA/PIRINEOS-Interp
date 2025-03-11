@@ -1,3 +1,4 @@
+# Load model and sample prompt
 from transformers import TrainingArguments, BitsAndBytesConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -44,3 +45,6 @@ generated_ids = model.generate(input_ids, max_new_tokens=50)
 # Decode the full generated sequence (prompt + completion)
 generated_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
 print(generated_text)
+
+
+

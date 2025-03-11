@@ -38,3 +38,5 @@ pip install -e .
 ```
 
 
+## Captum models available:
+To check them, go to [Captum repo](https://github.com/pytorch/captum#references-of-algorithms)
