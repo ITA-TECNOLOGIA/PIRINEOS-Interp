@@ -1,3 +1,6 @@
 [submodule "captum-ITA"]
 	path = captum-ITA
 	url = https://github.com/plazaro-ita/captum-ITA.git
+[submodule "tuned-lens-ITA"]
+	path = tuned-lens-ITA
+	url = https://github.com/plazaro-ita/tuned-lens-ITA.git
