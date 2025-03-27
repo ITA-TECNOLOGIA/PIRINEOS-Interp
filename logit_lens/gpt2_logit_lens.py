@@ -27,6 +27,7 @@ class AttnWrapper(torch.nn.Module):
         self.add_tensor = None
 
 class BlockOutputWrapper(torch.nn.Module):
+    #! tengo la corrección en el gpt
     def __init__(self, block, lm_head, norm):
         super().__init__()
         self.block = block
@@ -314,12 +315,21 @@ class GPT2LogitLens:
 # Example usage:
 if __name__ == "__main__":
     input_text = "The capital of Spain is"
-    components_to_capture = ["block_output"]
+    gpt3_abstract = """Recent work has demonstrated substantial gains on many NLP tasks and benchmarks by pre-training
+    on a large corpus of text followed by fine-tuning on a specific task. While typically task-agnostic
+    in architecture, this method still requires task-specific fine-tuning datasets of thousands or tens of
+    thousands of examples. By contrast, humans can generally perform a new language task from only
+    a few examples or from simple instructions – something which current NLP systems still largely
+    struggle to do. Here we show that scaling up language models greatly improves task-agnostic,
+    few-shot performance, sometimes even reaching competitiveness with prior state-of-the-art finetuning approaches. Specifically, we train GPT-3, an autoregressive language model with 175 billion
+    parameters, 10x more than any previous non-sparse language model, and test its performance in
+    the few-shot setting.""".replace("\n", " ")
+    components_to_capture = ["attn_mech_output"]
 
     # For GPT-2:
     gpt2_logit_lens = GPT2LogitLens()
     all_time_steps_data, final_text = gpt2_logit_lens.iterative_generation_with_layers(
-        prompt=input_text,
+        prompt=gpt3_abstract,
         max_new_tokens=10,
         components=components_to_capture
     )
