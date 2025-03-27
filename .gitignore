@@ -1,6 +1,7 @@
 wandb/*
 thepile/*
 __pycache__/*
+tuned-lens-ITA/my_lenses/*
 
 
 *.log
