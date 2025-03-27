@@ -38,5 +38,31 @@ pip install -e .
 ```
 
 
+## Tuned Lens Submodule
+First clone the git and submodule
+```bash
+git clone https://github.com/plazaro-ita/tuned-lens-ITA.git
+git submodule add https://github.com/plazaro-ita/tuned-lens-ITA.git tuned-lens-ITA/
+```
+
+Now Install requirements
+```bash
+cd tuned-lens-ITA
+pip install -e .
+```
+
+
 ## Captum models available:
 To check them, go to [Captum repo](https://github.com/pytorch/captum#references-of-algorithms)
+
+## Tuned Lens
+
+Install tuned lens via pypi
+```bash
+pip install tuned-lens
+```
+
+Downgrade plotly for correct use of heatmap
+```bash
+pip install plotly==5.13.1
+```
