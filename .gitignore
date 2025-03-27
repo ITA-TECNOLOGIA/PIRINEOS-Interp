@@ -1,1 +1,10 @@
 wandb/*
+thepile/*
+__pycache__/*
+
+
+*.log
+*.png
+*.html
+
+nohup.out
