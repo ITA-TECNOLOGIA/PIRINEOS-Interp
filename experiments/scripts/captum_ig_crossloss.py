@@ -44,7 +44,7 @@ attention_mask = inputs["attention_mask"].to(model.device)
 
 
 # Define a forward function returning a scalar for attribution
-def forward_func(input_embeds, attention_mask, max_new_tokens = 50, eos_token_id = tokenizer.eos_token_id):
+def forward_func(input_embeds, attention_mask, max_new_tokens = 10, eos_token_id = tokenizer.eos_token_id):
     # In order not to overwrite
     current_input_embeds = input_embeds.clone()
     current_attention_mask = attention_mask.clone()
@@ -59,7 +59,7 @@ def forward_func(input_embeds, attention_mask, max_new_tokens = 50, eos_token_id
     for _ in range(max_new_tokens):
         # In this loop we iterate over the new tokens, updating the input adding new token each time   
         # Importante trackear el shape porque el IG mete los steps como batch size
-        outputs = model(inputs_embeds=input_embeds, attention_mask=attention_mask)
+        outputs = model(inputs_embeds=current_input_embeds, attention_mask=current_attention_mask)
         
         # get the outputs we are interested in
         last_logits = outputs.logits[:, -1, :]          # shape: [batch_size, vocab_size], get the output for the last input token
