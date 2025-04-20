@@ -1,7 +1,16 @@
 wandb/*
 thepile/*
-__pycache__/*
 tuned-lens-ITA/my_lenses/*
+
+
+**/__pycache__/
+**/explainability.egg-info/
+
+.vscode/*
+
+outputs/*
+unsloth_compiled_cache/*
+trained_models/*
 
 
 *.log
