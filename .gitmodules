@@ -4,3 +4,6 @@
 [submodule "tuned-lens-ITA"]
 	path = tuned-lens-ITA
 	url = https://github.com/plazaro-ita/tuned-lens-ITA.git
+[submodule "eval_gsm8k"]
+	path = eval_gsm8k
+	url = ./eval_gsm8k
