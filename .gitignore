@@ -18,3 +18,9 @@ trained_models/*
 *.html
 
 nohup.out
+*.out
+
+trained_models/*
+**/__pycache__/*
+**/explainability.egg-info/*
+launch.json
