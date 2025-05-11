@@ -3,12 +3,12 @@ from abc import ABC, abstractmethod
 from explainability.models.llm_config import LLMConfig
 
 class BaseModelLoader(ABC):
-    def __init__(self, config: LLMConfig):
+    def __init__(self, config: LLMConfig, hf_key: str = None):
         self.config = config
-        self.hf_login(None)
+        self.hf_login(hf_key)
 
     @abstractmethod
-    def load_model(self):
+    def load_model(self, access_token: str = None):
         """
         Abstract method to load the model, must be overridden.
         """
