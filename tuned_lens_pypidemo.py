@@ -11,8 +11,8 @@ from plotly.subplots import make_subplots
 class QwenTunedLens:
     
     access_token_write = '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'
-    model_name = "Qwen/Qwen2.5-7B-Instruct"
-    trained_lens = "tuned-lens-ITA/my_lenses/Qwen2/Qwen25-7B-Instruct"
+    model_name = "Qwen/Qwen2.5-14B"#"Qwen/Qwen2.5-7B"
+    trained_lens = "tuned-lens-ITA/my_lenses/Qwen2/Qwen25-14B"#"tuned-lens-ITA/my_lenses/Qwen2/Qwen25-7B-Instruct"
     
     def __init__(self, device_map = "auto"):
         self.model, self.tokenizer = self.load_model(self.access_token_write, self.model_name, device_map)
@@ -143,9 +143,12 @@ class QwenTunedLens:
         
         # Generate the output from the model.
         generated = self.model.generate(input_ids, **generation_kwargs)
+        generated_text = self.tokenizer.decode(generated[0], skip_special_tokens=True)
+        print(generated_text)
+        
         # Convert generated output (assumed batch size 1) to a list of token ids.
         generated_ids = generated[0].tolist()
-        
+
         # Determine token range: if not provided, use the full generated sequence.
         if token_range is None:
             token_range = (0, len(generated_ids))
@@ -207,13 +210,16 @@ if __name__ == "__main__":
     #    token_range=(0, 20)
     #)
     
+    # Problema 1 -> Answer: 5
+    prompt_1 = "Betty is saving money for a new wallet which costs $100. Betty has only half of the money she needs. Her parents decided to give her $15 for that purpose, and her grandparents twice as much as her parents. How much more money does Betty need to buy the wallet?"
+    
     # Generate an explainability plot for the GENERATED OUTPUT
     fig = qwen_lens.explain_output(
-        prompt="Tell me a story about a brave knight.",
+        prompt=prompt_1,
         statistic="entropy",
         lens_type="tuned",
         layer_stride=2,
-        token_range=(0, 30),
-        generation_kwargs={"max_new_tokens": 50, "do_sample": True, "temperature": 0.8}
+        token_range=(0, 250),
+        generation_kwargs={"max_new_tokens": 250, "do_sample": True, "temperature": 0.8}
     )
-    fig.write_html("explainability_plot_knightstory.html")
+    fig.write_html("explainability_plot_problema1_14B_250tokens.html")
