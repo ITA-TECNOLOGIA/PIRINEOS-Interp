@@ -1,6 +1,8 @@
 wandb/*
 thepile/*
 tuned-lens-ITA/my_lenses/*
+data/*
+MATH/*
 
 
 **/__pycache__/

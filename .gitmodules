@@ -7,3 +7,9 @@
 [submodule "eval_gsm8k"]
 	path = eval_gsm8k
 	url = ./eval_gsm8k
+[submodule "math"]
+	path = math
+	url = https://github.com/hendrycks/math.git
+[submodule "gpqa-ita"]
+	path = gpqa-ita
+	url = https://github.com/plazaro-ita/gpqa-ita.git
