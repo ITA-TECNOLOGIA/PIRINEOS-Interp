@@ -72,7 +72,8 @@ class TunedLens:
     
     def stats_explain(
         self, 
-        prompt, 
+        input_ids = None, # Pass it the token ids directly
+        prompt = None, 
         statistic="entropy", 
         layer_stride=2, 
         token_range=None
@@ -91,8 +92,9 @@ class TunedLens:
             # TODO: return?
         """
         # Tokenize input and prepare targets
-        input_ids = self.tokenizer.encode(prompt)
-        if len(input_ids) == 0:
+        if input_ids is None:
+            input_ids = self.tokenizer.encode(prompt)
+        if len(input_ids) == 0 and prompt is None:
             raise ValueError("Please provide some input text.")
         targets = input_ids[1:] + [self.tokenizer.eos_token_id]
         
