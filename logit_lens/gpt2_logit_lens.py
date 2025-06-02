@@ -4,6 +4,7 @@ from transformers import TrainingArguments, BitsAndBytesConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 from typing import List, Tuple, Dict
+import os
 
 import numpy as np
 
@@ -107,6 +108,7 @@ class GPT2LogitLens:
     model_name = "gpt2"
     
     def __init__(self):
+        self.access_token_write = os.getenv("HF_TOKEN")
         self.model, self.tokenizer = self.load_model(self.access_token_write, self.model_name)
         self.model = self.wrap_model(self.model)
         self.reset_layers()
@@ -314,7 +316,7 @@ class GPT2LogitLens:
 
 # Example usage:
 if __name__ == "__main__":
-    input_text = "The capital of Spain is"
+    input_text = "The capital of the US is"
     gpt3_abstract = """Recent work has demonstrated substantial gains on many NLP tasks and benchmarks by pre-training
     on a large corpus of text followed by fine-tuning on a specific task. While typically task-agnostic
     in architecture, this method still requires task-specific fine-tuning datasets of thousands or tens of
@@ -329,8 +331,8 @@ if __name__ == "__main__":
     # For GPT-2:
     gpt2_logit_lens = GPT2LogitLens()
     all_time_steps_data, final_text = gpt2_logit_lens.iterative_generation_with_layers(
-        prompt=gpt3_abstract,
-        max_new_tokens=10,
+        prompt=input_text,
+        max_new_tokens=5,
         components=components_to_capture
     )
     gpt2_logit_lens.plot_iterative_layer_logits(all_time_steps_data, components=components_to_capture)

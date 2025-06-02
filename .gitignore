@@ -13,6 +13,7 @@ MATH/*
 outputs/*
 unsloth_compiled_cache/*
 trained_models/*
+outputs*.txt
 
 
 *.log
@@ -26,3 +27,4 @@ trained_models/*
 **/__pycache__/*
 **/explainability.egg-info/*
 launch.json
+eval_results/*
