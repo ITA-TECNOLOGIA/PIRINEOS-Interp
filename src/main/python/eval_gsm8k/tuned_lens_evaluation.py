@@ -26,6 +26,8 @@ from explainability.models import LLMConfig
 from explainability.models import DefaultHFModelLoader, BnBQuantizedModelLoader
 from explainability.tuned_lens import TunedLens
 
+from eval_MATH.results_saver import ResultSaver
+
 def save_tensors(sample_id: int,
                  lens_answers: list[dict[str, np.ndarray]],
                  run_dir: Path) -> list[str]:
@@ -141,11 +143,77 @@ def dump_single_results(args, results):
         json.dump(results, f, indent=4)
 
     print(f"Results saved to {result_file}")
+    
+def get_topk_final_log_probs(
+        output_tokens: torch.Tensor,
+        log_probs:      torch.Tensor,    # (n_layers , seq_len , vocab)
+        tokenizer,
+        topk: int = 5
+):
+    """
+    Return 3 items (all align on dimension-0 == seq_len):
+
+      • topk_log_probs : torch.FloatTensor (seq_len , K)
+      • topk_ids       : torch.LongTensor  (seq_len , K)
+      • topk_tokens    : List[List[str]]   len == seq_len, inner len == K
+
+    The *actual* generated token for each position is guaranteed to be
+    in the top-K set (last slot if needed).
+    """
+    ids        = output_tokens.tolist()          # (seq_len,)
+    seq_len    = log_probs.shape[1]
+    # log_probs was turned to numpy when parsing lp, so we need to go back to torch tensor
+    if isinstance(log_probs, np.ndarray):
+        log_probs = torch.from_numpy(log_probs)
+    last_layer = log_probs[-1]                      # (seq_len , vocab)
+
+    topk_logp_rows   = []
+    topk_id_rows     = []
+    topk_token_rows  = []
+
+    for pos in range(seq_len):
+        lp_row = last_layer[pos]                 # (vocab,)
+        # 1) get native top-K
+        vals, idxs = lp_row.topk(topk)           # tensors, size K
+        top_ids    = idxs.tolist()
+        top_vals   = vals.tolist()
+
+        # 2) make sure the real token is included
+        actual_id   = ids[pos]
+        actual_lp   = lp_row[actual_id].item()
+        if actual_id not in top_ids:
+            top_ids[-1]  = actual_id
+            top_vals[-1] = actual_lp
+
+        # 3) decode → tokens
+        tok_strs = tokenizer.convert_ids_to_tokens(top_ids)
+
+        # 4) append row
+        topk_logp_rows.append(top_vals)
+        topk_id_rows.append(top_ids)
+        topk_token_rows.append(tok_strs)
+
+    topk_log_probs = torch.tensor(topk_logp_rows, dtype=torch.float32)
+    topk_ids       = torch.tensor(topk_id_rows,   dtype=torch.long)
+    topk_tokens    = topk_token_rows              # already Python lists
+
+    return topk_log_probs, topk_ids, topk_tokens
+
+def get_model_output(context, full_output, tokenizer):
+    """
+    Given the context and the full model output (context + generated),
+    extract just the generated tokens.
+    Remove the last token if it is <|endoftext|>
+    """
+    ret = full_output[len(context):]
+    if ret[-1] == tokenizer.eos_token_id:
+        ret = ret[:-1]
+    return ret
   
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, default='mistralai/Mistral-7B-v0.1')
+    parser.add_argument('--model', type=str, default='Qwen/Qwen2.5-14B')
     parser.add_argument('--tuned_lens', type=str, default=None)
     parser.add_argument('--use_majority_vote', action='store_true')
     parser.add_argument("--temp", type=float, default=0)
@@ -155,6 +223,8 @@ def main():
     parser.add_argument("--output_folder", type=str, default="data/eval_results/single_eval/")
     parser.add_argument("--max_new_tokens", type=int, default=512)
     parser.add_argument("--half_eval", action="store_true")
+    # New args
+    parser.add_argument('--last-tokens-tl', default = None, type = int)
     args = parser.parse_args()
 
 
@@ -168,7 +238,12 @@ def main():
         device_map = args.device_map,
         torch_dtype = torch.float16,
     )
-    model_loader = DefaultHFModelLoader(model_config, hf_key = "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")
+    # Get HF token
+    hf_key = os.getenv("HF_TOKEN")
+    if hf_key is None:
+        model_loader = DefaultHFModelLoader(model_config)
+    else:
+        model_loader = DefaultHFModelLoader(model_config, hf_key = hf_key)
     model, tokenizer = model_loader.load_model()
     tokenizer.pad_token = tokenizer.eos_token
     
@@ -195,9 +270,7 @@ def main():
         "Question:",
     ]
     
-    run_dir = Path(args.output_folder) / f"{args.model.split('/')[-1]}_{datetime.now():%Y%m%dT%H%M%S}"
-    run_dir.mkdir(parents=True, exist_ok=True)
-    json.dump(vars(args), open(run_dir/"meta.json","w"), indent=2, default=str)
+    saver = ResultSaver(model_name='GSM8K_' + args.model.replace('/', '__'))
     
     rows = []
 
@@ -230,45 +303,43 @@ def main():
                 outputs = model.generate(**inputs, max_new_tokens=args.max_new_tokens, pad_token_id=tokenizer.eos_token_id, stopping_criteria=stopping_criteria_list)
             model_answers.append(extract_final_answer(outputs, tokenizer))
             
+            
         # Pass through tuned lens
         # tokenize the prompt once up front
         input_ids = tokenizer.encode(input_text, return_tensors="pt")[0]
         input_len = input_ids.size(0)
         lens_answers = []
         for answer in model_answers:
+            # Get the output tokens, just like in MATH
+            output_tokens = get_model_output(inputs['input_ids'][0], outputs[0], tokenizer)
+            # Print this iteration
+            output_full = tokenizer.decode(output_tokens)   # TODO me quedé aquí
             # after generation, your `outputs` has shape (1, seq_len)
             seq_len = outputs.size(1)
             # the newly generated tokens are at positions [input_len, seq_len)
-            token_range = (input_len, seq_len)
+            if args.last_tokens_tl is not None: # For R1 case evaluation is too slow for long context
+                start_len = max(seq_len - args.last_tokens_tl, input_len)   # just in case seq_len is smaller than last_tokens_tl
+                token_range = (start_len, seq_len)
+            else:
+                token_range = (input_len, seq_len)
             lens_output = tuned_lens.stats_explain(
                 prompt = answer['full_text'],    # answer no es, tiene que ser con el input
-                statistic = ["entropy", "log_probs"],
+                statistic = ["entropy", "cross_entropy", "forward_kl"],
                 layer_stride = 1,
                 token_range = token_range,
             )
             
             # Get ground truth answer logprob throughout the layers
             log_probs = lens_output.log_probs
-            ground_enc_ids = tokenizer(ground_truth_answer, add_special_tokens = False)['input_ids']
+            if isinstance(log_probs, torch.Tensor):
+                lp = log_probs.detach().cpu().numpy()
+            else:
+                lp = log_probs
+            entropy = lens_output.entropy().stats
+            forward_kl = lens_output.forward_kl().stats
             
-            
-            
-            
-            # TODO DEBUG
-            #answer['input'] = input_text
-            #answer['ground_truth_answer'] = ground_truth_answer
-            #answer['input_len'] = input_len
-            #json_path = "../data/eval_results/particular_cases/20250509_R1_answer.json"
-            #json.dump(answer, open(json_path, "w"), indent=2, default=str)
-            #path = "../data/eval_results/particular_cases/20250509_R1_tensors.npz"
-            #log_probs_out = log_probs.astype(np.float16)
-            #entropy_out = lens_output.entropy().stats.astype(np.float16)
-            #np.savez_compressed(path,
-            #                log_probs = log_probs_out,
-            #                entropy = entropy_out)
-            # TODO
-            
-            
+            # Get log probs of the solution
+            ground_enc_ids = tokenizer(ground_truth_answer, add_special_tokens = False)['input_ids']   
             
             # Now get the log probs for each cipher in the numeric answer
             ground_log_probs = []
@@ -281,6 +352,7 @@ def main():
                     ground_log_probs.append(log_probs[:, idx - offset, ground_id])   # el -input_len-1 ha sido checked manualmente
             else:
                 ground_log_probs = None
+                
             # Now stack and mean (if not empty)
             if ground_log_probs:
                 stacked_lp          = np.stack(ground_log_probs, axis=1)   # (num_layers, n_positions)
@@ -289,31 +361,51 @@ def main():
                 # fall‑back if something went weird (shouldn’t normally happen)
                 layer_avg_logprob   = np.full((log_probs.shape[0],), float('nan'))
             
-            # Get entropy for the answer part of the text
-            output_entropy = lens_output.entropy().stats # This already doesn't include input, as token range was as input for tuned lens
+            # Get topk final token log probs
+            topk_offset = 1 # I'm using output_ids and token_range so no need to do anything about last_tokens_lp
+            topk_final_log_probs, topk_final_ids, topk_final_tokens = get_topk_final_log_probs(
+                outputs[0][token_range[0]+topk_offset:token_range[1]], log_probs[:,:-topk_offset,:], tokenizer, topk=10 # Watch out, they don't match otherwise
+            )    
             
-            # Store in dict
-            lens_answers_dict = {
-                'log_probs': layer_avg_logprob,
-                'entropy': output_entropy,
-            }
-            lens_answers.append(lens_answers_dict)
-        
-        #! save lens_answers? big np.arrays     
-        tensor_paths = save_tensors(i, lens_answers, run_dir)
-        rows.append(parse_answer(i, example, ground_truth_answer,
-                                model_answers) |        # PEP 584 merge
-                    {"tensor_path": tensor_paths[0]})
-        
-        #results.append(parse_answer(i, example, ground_truth_answer, model_answers, lens_answers))
-        
-        #break #! DEBUGGING PURPOSES
-    
-    pd.DataFrame(rows).to_parquet(run_dir/"results.parquet", index=False)
-    print(f"Saved tensors to {run_dir}")
-    print(f"Accuracy = {pd.read_parquet(run_dir/'results.parquet')['correct'].mean():.4f}")
-    
-    #dump_single_results(args, results)
+            # Get topk log probs by layer # log_probs -> (layers, seq_len, vocab)
+            topk_logp, topk_idx  = torch.from_numpy(log_probs).topk(k=10, dim=-1)      # same shape but …,topk
+            flat                 = tokenizer.batch_decode(topk_idx.flatten())
+            topk_tokens          = np.array(flat, dtype=object).reshape(topk_idx.shape)
+            
+            # Get if correct, I reuse old function
+            parsed_answer = parse_answer(
+                i, example, ground_truth_answer, model_answers
+            )
+            
+            
+            # after you have everything computed:
+            saver.add(
+                qid               = str(i).zfill(6).split('/')[-1].replace('.json',''),
+                question          = input_text,
+                ground_answer_text= ground_truth_answer,
+                model_answers_text= [output_full],
+                extracted_model_answers=[answer["numeric"]],
+                extracted_ground_answer=ground_enc_ids,
+                majority_answer   = answer["numeric"],
+                correct           = parsed_answer['correct'],
+                output_tokens     = output_tokens.tolist(),
+
+                entropy           = entropy,       # fixed blob
+                forward_kl        = forward_kl,
+                layer_avg         = torch.tensor(layer_avg_logprob),
+
+                # ─── free-form extras – EACH becomes its own .pt file ───
+                topk_final_log_probs = topk_final_log_probs,
+                topk_final_ids       = topk_final_ids,
+                topk_final_tokens    = topk_final_tokens,
+
+                # same pattern for “layer-wise” info if you want it separate
+                topk_layer_log_probs = topk_logp.cpu(),
+                topk_layer_ids       = topk_idx.cpu(),
+                topk_layer_tokens    = topk_tokens,
+            )
+            
+    saver.close()
     
 if __name__ == '__main__':
     main()
