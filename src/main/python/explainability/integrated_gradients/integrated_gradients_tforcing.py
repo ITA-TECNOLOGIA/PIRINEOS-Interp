@@ -74,7 +74,7 @@ class IGTForcing:
             additional_forward_args=(attention_mask, 
                                      prompt_length,
                                      full_length,
-                                     forced_token_ids,),
+                                     forced_token_ids,),    # Arguments that go towards the forward function
             return_convergence_delta=ig_config.return_convergence_delta,
             target=ig_config.target,
         )
