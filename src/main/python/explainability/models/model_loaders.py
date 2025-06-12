@@ -32,7 +32,11 @@ class DefaultHFModelLoader(BaseModelLoader):
 class BnBQuantizedModelLoader(BaseModelLoader):
     def load_model(self):
         # Quantization config
-        quantization_config = BitsAndBytesConfig(**self.config.quantization_config)
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype="bfloat16",
+        )
         # Load model from huggingface
         model = AutoModelForCausalLM.from_pretrained(
             self.config.model_name,

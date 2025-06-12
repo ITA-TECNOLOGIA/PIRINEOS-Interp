@@ -8,6 +8,21 @@ from plotly.subplots import make_subplots
 from tuned_lens.nn.lenses import TunedLens as ARTunedLens
 from tuned_lens.plotting import PredictionTrajectory
 
+import os
+import psutil
+import time
+import numpy as np
+
+# Call this function wherever you want to log CPU and RAM usage.
+def log_resource_usage(label=""):
+    process = psutil.Process(os.getpid())
+    # CPU percent since last call; use a small interval to get an updated snapshot
+    cpu_pct = process.cpu_percent(interval=0.1)
+    # Resident Set Size (RSS) in bytes → convert to GB
+    mem_bytes = process.memory_info().rss
+    mem_gb = mem_bytes / (1024 ** 3)
+    print(f"[RESOURCE] {label} | CPU%: {cpu_pct:.2f}% | RAM: {mem_gb:.2f} GB")
+
 class TunedLens:
     
     def __init__(self, model, tokenizer, lens):
@@ -104,6 +119,8 @@ class TunedLens:
         elif token_range[0] == token_range[1]:
             raise ValueError("Please provide a valid token range (start and end must differ).")
         
+        #log_resource_usage(f"before predictiontrajectory")
+        
         # Build the prediction trajectory and slice the sequence
         pred_traj = PredictionTrajectory.from_lens_and_model(
             lens=self.tuned_lens,
@@ -113,6 +130,8 @@ class TunedLens:
             targets=targets,
         ).slice_sequence(slice(*token_range))
         
+        #log_resource_usage(f"after predictiontrajectory")
+        
         return pred_traj
         
         # Compute the chosen statistic, apply layer stride, and create the figure
@@ -120,6 +139,136 @@ class TunedLens:
             title=f"{self.tuned_lens.__class__.__name__} ({self.model.name_or_path}) {statistic}"
         )
         return fig
+    
+    def stats_explain_minimal(
+    self,
+    input_ids: list[int],
+    token_range: tuple[int, int],
+    layer_stride: int = 1,
+    ):
+        """
+        Compute only:
+        • log_probs[layer_i][token_pos][:]   (as a NumPy array) for each kept layer
+        • entropy[layer_i][token_pos]         (NumPy array)
+        • forward_kl[layer_i][token_pos]      (NumPy array)
+        **Without** ever materializing the full (layers x seq_len x vocab) tensor in CPU/RAM.
+
+        Args:
+            tuned_lens:       your TunedLens object (with lens.forward)
+            model:            the HF model (already .eval() and on correct device)
+            tokenizer:        the HF tokenizer
+            input_ids:        full sequence of token IDs (prompt + generation)
+            token_range:      (start_idx, end_idx) within input_ids for which we want stats
+            layer_stride:     only keep every `layer_stride`‐th layer (e.g. 2, 4)
+
+        Returns:
+            {
+                "log_probs": np.ndarray shape (num_kept_layers, slice_len, vocab_size),
+                "entropy":   np.ndarray shape (num_kept_layers, slice_len),
+                "forward_kl": np.ndarray shape (num_kept_layers, slice_len)
+            }
+        """
+
+        # 1) Run the model on the full input_ids, get hidden_states + final logits
+        model_device = next(self.model.parameters()).device
+        input_th = torch.tensor(input_ids, device=model_device).unsqueeze(0)  # (1, seq_len)
+
+        # We need both hidden_states and logits
+        # Make sure your model returns hidden_states:
+        model_out = self.model(input_th, output_hidden_states=True)
+        hidden_states = model_out.hidden_states  # tuple of length (num_layers+1); each is (1, seq_len, d_model)
+        logits_full = model_out.logits.squeeze(0).detach()  # (seq_len, vocab_size)
+
+        # 2) Prepare slices
+        start_tok, end_tok = token_range
+        slice_len = end_tok - start_tok
+        vocab_size = logits_full.shape[-1]
+
+        # Convert the model's logits over that slice to log‐probs, for forward_KL
+        model_lps_slice = (
+            logits_full[start_tok:end_tok, :]
+            .log_softmax(dim=-1)   # still a torch.Tensor shape (slice_len, vocab_size)
+            .detach()
+            .cpu()
+            .numpy()
+        )
+        
+        probs_model_slice = np.exp(model_lps_slice)  # NumPy array (slice_len, vocab)
+        ent_model = -(probs_model_slice * model_lps_slice).sum(axis=-1)  # (slice_len,)
+        # We can delete `logits_full` on GPU now if it's still occupying memory
+        del logits_full
+
+        # 3) Loop over every kept layer, one at a time
+        all_layer_log_probs = []
+        all_layer_entropy   = []
+        all_layer_forwardkl = []
+
+        num_layers_total = len(hidden_states) - 1  # last hidden_states[-1] is post‐embedding, not needed for lens
+
+        for layer_idx in range(0, num_layers_total, layer_stride):
+            # Log memory before we process this layer
+            #log_resource_usage(f"before processing layer {layer_idx}")
+
+            # 3.1) Extract that layer's hidden state, slice to token_range
+            # hidden_states[layer_idx]: shape (1, seq_len, d_model)
+            h_layer: torch.Tensor = hidden_states[layer_idx].squeeze(0)  # (seq_len, d_model)
+            h_slice = h_layer[start_tok:end_tok, :].unsqueeze(0)        # (1, slice_len, d_model)
+
+            # 3.2) Run tuned_lens.forward() on this slice to get logits over vocab
+            #        Output shape: (1, slice_len, vocab_size)
+            proj_logits = self.tuned_lens.forward(h_slice, layer_idx)  # still on model_device
+
+            # 3.3) Compute log_probs (slice_len × vocab), entropy, and forward KL
+            # Move to CPU/double‐check dtype
+            proj_lps = proj_logits.log_softmax(dim=-1).squeeze(0)  # (slice_len, vocab_size) on GPU
+            proj_probs = proj_lps.exp()                            # (slice_len, vocab_size)
+
+            # Entropy per token: -∑ p * log p
+            #   shape → (slice_len,)
+            ent = -(proj_probs * proj_lps).sum(dim=-1)  # still on GPU
+
+            # Forward KL: ∑ p_model * (log p_model − log p_lens)
+            #   p_model = exp(model_lps_slice) but we already have model_lps_slice on CPU
+            #   proj_lps on GPU, so bring proj_lps to CPU
+            proj_lps_cpu = proj_lps.detach().cpu()        # (slice_len, vocab_size)
+            # model_lps_slice: (slice_len, vocab_size) NumPy
+            #   → convert to torch Tensor on CPU so we can do operations easily
+            model_lps_cpu = torch.from_numpy(model_lps_slice)  # (slice_len, vocab_size)
+            kl = ( model_lps_cpu.exp() * (model_lps_cpu - proj_lps_cpu) ).sum(dim=-1)  # (slice_len,)
+
+            # 3.4) Convert each to NumPy, append to our lists
+            all_layer_log_probs.append(proj_lps_cpu.numpy())  # each is (slice_len, vocab_size)
+            all_layer_entropy.append(ent.detach().cpu().numpy())    # each is (slice_len,)
+            all_layer_forwardkl.append(kl.detach().cpu().numpy())   # each is (slice_len,)
+
+            # 3.5) Clean up intermediate tensors for this layer
+            del h_slice, proj_logits, proj_lps, proj_probs, proj_lps_cpu, ent, model_lps_cpu, kl
+            torch.cuda.empty_cache()
+            #log_resource_usage(f"after finishing layer {layer_idx}")
+            
+        # 4) NOW append the final “model” layer as one more row:
+        all_layer_log_probs.append(model_lps_slice)     # shape (slice_len, vocab)
+        all_layer_entropy.append(ent_model)             # shape (slice_len,)
+        # Forward KL of model vs. itself = 0 for every token
+        all_layer_forwardkl.append(np.zeros(slice_len, dtype=np.float32))
+
+        # 4) Stack into big NumPy arrays
+        #    log_probs:   shape (num_kept_layers, slice_len, vocab_size)
+        #    entropy:     shape (num_kept_layers, slice_len)
+        #    forward_kl:  shape (num_kept_layers, slice_len)
+        log_probs_arr   = np.stack(all_layer_log_probs, axis=0)
+        entropy_arr     = np.stack(all_layer_entropy,   axis=0)
+        forwardkl_arr   = np.stack(all_layer_forwardkl, axis=0)
+
+        # 5) Clean up the hidden_states tuple (so GPU/CPU RAM frees)
+        del hidden_states
+        torch.cuda.empty_cache()
+
+        return {
+            "log_probs":   log_probs_arr,
+            "entropy":     entropy_arr,
+            "forward_kl":  forwardkl_arr,
+        }
     
     def explain_output(
         self,

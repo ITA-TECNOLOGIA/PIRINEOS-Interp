@@ -1,14 +1,3 @@
-"""
-
-Example:
-
-CUDA_VISIBLE_DEVICES=6 python3 eval_math_gpt.py \
-    --arch=gpt2 \
-    --math-dataroot=./MATH/test/*/*.json \
-    --load=/data/sauravkadavath/maths-beta__modeling__checkpoints/MATH__bbox_only_3_epochs__finetune_6_epochs__pretraining_khan_latex_loss_only__gpt117/checkpoint.pth
-
-"""
-
 import io
 import logging
 import math
@@ -20,6 +9,7 @@ import json
 import time
 import transformers
 import numpy as np
+import psutil
 
 from tqdm import tqdm
 
@@ -42,11 +32,24 @@ from explainability.models import DefaultHFModelLoader, BnBQuantizedModelLoader
 from explainability.tuned_lens import TunedLens
 
 from eval_MATH.results_saver import ResultSaver
+from eval_MATH.dataset_sampler import SubjectInterleaveSampler
 
 from collections import OrderedDict
 
 
 BOXED_PATTERN = re.compile(r'\\boxed\s*{')
+
+def log_resource_usage(label=""):
+    """
+    Debugging function to log resource usage (CPU and RAM).
+    """
+    process = psutil.Process(os.getpid())
+    # CPU percent since last call; use a small interval to get an updated snapshot
+    cpu_pct = process.cpu_percent(interval=0.1)
+    # Resident Set Size (RSS) in bytes → convert to GB
+    mem_bytes = process.memory_info().rss
+    mem_gb = mem_bytes / (1024 ** 3)
+    print(f"[RESOURCE] {label} | CPU%: {cpu_pct:.2f}% | RAM: {mem_gb:.2f} GB")
 
 def get_level_type(fname):
     """
@@ -232,9 +235,15 @@ def run_eval(args):
     # Get HF token
     hf_key = os.getenv("HF_TOKEN")
     if hf_key is None:
-        model_loader = DefaultHFModelLoader(model_config)
+        if args.quantized:
+            model_loader = BnBQuantizedModelLoader(model_config)
+        else:
+            model_loader = DefaultHFModelLoader(model_config)
     else:
-        model_loader = DefaultHFModelLoader(model_config, hf_key = hf_key)
+        if args.quantized:
+            model_loader = BnBQuantizedModelLoader(model_config, hf_key = hf_key)
+        else:
+            model_loader = DefaultHFModelLoader(model_config, hf_key = hf_key)
     model, tokenizer = model_loader.load_model()
     tokenizer.pad_token = tokenizer.eos_token
     model.config.pad_token_id = tokenizer.eos_token_id
@@ -251,10 +260,14 @@ def run_eval(args):
     eval_data = get_dataset(args)
     for inner_dset in eval_data.datasets:
         inner_dset.tokenizer = tokenizer
+    
+    # Try sampling by subject stratification    
+    sampler = SubjectInterleaveSampler(eval_data, seed=42)
 
     dataloader = torch.utils.data.DataLoader(
         eval_data, 
         batch_size=1, 
+        sampler = sampler,
         num_workers=0, 
         pin_memory=True,
     )
@@ -271,9 +284,13 @@ def run_eval(args):
             print(batch['input_ids'])
             quit()
     """
-
+    
+    #if ('GRPO' in args.model) or ('Distill' in args.model):  # Quick fix, for custom trained model the .cuda() returns None
+    #    model = model.eval()
+    #else:
+    #    model = model.eval().cuda()
     model = model.eval()
-    #model = model.cuda()
+    tuned_lens.tuned_lens = tuned_lens.tuned_lens.cuda()
 
     loss_moving_average = 0
 
@@ -294,6 +311,8 @@ def run_eval(args):
         mean_max_probs_correct = []
         mean_max_probs_wrong   = []
         for i, batch in enumerate(tqdm(dataloader)):
+            
+            #log_resource_usage(f"before example {i}")
 
             if torch.sum(batch['input_ids']) == 0:
                 skipped += 1
@@ -315,11 +334,14 @@ def run_eval(args):
                 attention_mask=attention_mask,
                 eos_token_id   = tokenizer.eos_token_id,
                 pad_token_id   = tokenizer.pad_token_id,
-                num_beams=args.num_beams, 
-                early_stopping=args.early_stopping,
-                temperature=1.0,
+                #num_beams=args.num_beams, 
+                #early_stopping=args.early_stopping,
+                #temperature=0.,
+                do_sample=False,
                 max_new_tokens=args.max_new_tokens,
             )
+            
+            #log_resource_usage(f"After generation {i}")
 
             mean_probs_sol = 0  # Esto realmente no lo estoy usando pero no quiero borrar demasiado código
             
@@ -341,7 +363,7 @@ def run_eval(args):
             output_full = output_str
             output_str = last_boxed_only_string(output_str)
 
-            if args.math_mode == "eval_peeking":
+            if (args.math_mode == "eval_peeking") or ('Distill' in args.model):
                 answer_str = last_boxed_only_string(tokenizer.decode(batch['labels'][0]))
             else:
                 answer_str = tokenizer.decode(batch['labels'][0])
@@ -359,21 +381,23 @@ def run_eval(args):
                 token_range = (start_len, seq_len)
             else:
                 token_range = (input_len, seq_len)
-            lens_output = tuned_lens.stats_explain(
-                input_ids = output_ids[0].tolist(),
-                statistic = ["entropy", "cross_entropy", "forward_kl"],
-                layer_stride=1,
-                token_range = token_range,
+            
+            #log_resource_usage(f"Before minimal stats_explain, example {i}")
+
+            lens_output = tuned_lens.stats_explain_minimal(
+                input_ids  = output_ids[0].tolist(),
+                token_range= token_range,
+                layer_stride = 1,   # or 2, or 4—whatever you decide
             )
+
+            #log_resource_usage(f"After minimal stats_explain, example {i}")
             
             # Parse output
-            log_probs = lens_output.log_probs
-            if isinstance(log_probs, torch.Tensor):
-                lp = log_probs.detach().cpu().numpy()
-            else:
-                lp = log_probs
-            entropy = lens_output.entropy().stats
-            forward_kl = lens_output.forward_kl().stats
+            lp = lens_output["log_probs"]
+            entropy = lens_output["entropy"]
+            forward_kl = lens_output["forward_kl"]
+            
+            #log_resource_usage(f"before results treating {i}")
             
             # Get log probs of the solution
             ground_log_probs = []
@@ -402,18 +426,22 @@ def run_eval(args):
             stacked_lp          = np.stack(ground_log_probs, axis=1)   # (num_layers, n_positions)
             layer_avg_logprob   = stacked_lp.mean(axis=1)                 # (num_layers,)
             
+            #log_resource_usage(f"after logprobs {i}")
+            
             # Get topk final token log probs
             topk_offset = 1 # I'm using output_ids and token_range so no need to do anything about last_tokens_lp
             topk_final_log_probs, topk_final_ids, topk_final_tokens = get_topk_final_log_probs(
-                output_ids[0][token_range[0]+topk_offset:token_range[1]], log_probs[:,:-topk_offset,:], tokenizer, topk=10 # Watch out, they don't match otherwise
+                output_ids[0][token_range[0]+topk_offset:token_range[1]], lp[:,:-topk_offset,:], tokenizer, topk=10 # Watch out, they don't match otherwise
             )          
             
+            #log_resource_usage(f"after topk final {i}")
+            
             # Get topk log probs by layer # log_probs -> (layers, seq_len, vocab)
-            topk_logp, topk_idx  = torch.from_numpy(log_probs).topk(k=10, dim=-1)      # same shape but …,topk
+            topk_logp, topk_idx  = torch.from_numpy(lp).topk(k=10, dim=-1)      # same shape but …,topk
             flat                 = tokenizer.batch_decode(topk_idx.flatten())
             topk_tokens          = np.array(flat, dtype=object).reshape(topk_idx.shape)
             
-            
+            #log_resource_usage(f"after topk layerwise {i}")
 
             print("Problem String:")
             print(tokenizer.decode(batch['input_ids'][0]) + "\n")
@@ -469,6 +497,8 @@ def run_eval(args):
             # print("CORRECT", mean_max_probs_correct)
             # print("WRONG", mean_max_probs_wrong)
             
+            #log_resource_usage(f"before saver {i}")
+            
             # after you have everything computed:
             saver.add(
                 qid               = fnames[0].split('/')[-1].replace('.json',''),
@@ -495,6 +525,15 @@ def run_eval(args):
                 topk_layer_ids       = topk_idx.cpu(),
                 topk_layer_tokens    = topk_tokens,
             )
+            
+            #log_resource_usage(f"after saver {i}")
+            
+            del lens_output
+            del lp, entropy, forward_kl, ground_log_probs
+            del topk_final_log_probs, topk_final_ids, topk_final_tokens
+            del topk_logp, topk_idx, topk_tokens
+            
+            #log_resource_usage(f"after cleanup, before next example {i}")
             
             total += 1
             
@@ -610,6 +649,7 @@ if __name__ == "__main__":
     # Others
     parser.add_argument('--workers', default=4, type=int)
     parser.add_argument('--last-tokens-tl', default = None, type = int)
+    parser.add_argument('--quantized', action='store_true', default=False, help='Use quantized model')
 
     args = parser.parse_args()
 

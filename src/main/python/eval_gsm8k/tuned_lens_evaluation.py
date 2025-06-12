@@ -225,6 +225,7 @@ def main():
     parser.add_argument("--half_eval", action="store_true")
     # New args
     parser.add_argument('--last-tokens-tl', default = None, type = int)
+    parser.add_argument('--quantized', action='store_true', help='Use quantized model with BnB')
     args = parser.parse_args()
 
 
@@ -241,9 +242,15 @@ def main():
     # Get HF token
     hf_key = os.getenv("HF_TOKEN")
     if hf_key is None:
-        model_loader = DefaultHFModelLoader(model_config)
+        if args.quantized:
+            model_loader = BnBQuantizedModelLoader(model_config)
+        else:
+            model_loader = DefaultHFModelLoader(model_config)
     else:
-        model_loader = DefaultHFModelLoader(model_config, hf_key = hf_key)
+        if args.quantized:
+            model_loader = BnBQuantizedModelLoader(model_config, hf_key = hf_key)
+        else:
+            model_loader = DefaultHFModelLoader(model_config, hf_key = hf_key)
     model, tokenizer = model_loader.load_model()
     tokenizer.pad_token = tokenizer.eos_token
     
@@ -296,7 +303,7 @@ def main():
         if args.use_majority_vote:
             for _ in range(args.n_votes):
                 with torch.no_grad():
-                    outputs = model.generate(**inputs, temperature=args.temp, max_new_tokens=args.max_new_tokens, do_sample=True, pad_token_id=tokenizer.eos_token_id, stopping_criteria=stopping_criteria_list)
+                    outputs = model.generate(**inputs, temperature=args.temp, max_new_tokens=args.max_new_tokens, do_sample=False, pad_token_id=tokenizer.eos_token_id, stopping_criteria=stopping_criteria_list)
                 model_answers.append(extract_final_answer(outputs, tokenizer))
         else:
             with torch.no_grad():
@@ -313,7 +320,7 @@ def main():
             # Get the output tokens, just like in MATH
             output_tokens = get_model_output(inputs['input_ids'][0], outputs[0], tokenizer)
             # Print this iteration
-            output_full = tokenizer.decode(output_tokens)   # TODO me quedé aquí
+            output_str = tokenizer.decode(output_tokens)   # TODO me quedé aquí
             # after generation, your `outputs` has shape (1, seq_len)
             seq_len = outputs.size(1)
             # the newly generated tokens are at positions [input_len, seq_len)
@@ -322,21 +329,17 @@ def main():
                 token_range = (start_len, seq_len)
             else:
                 token_range = (input_len, seq_len)
-            lens_output = tuned_lens.stats_explain(
-                prompt = answer['full_text'],    # answer no es, tiene que ser con el input
-                statistic = ["entropy", "cross_entropy", "forward_kl"],
+
+            lens_output = tuned_lens.stats_explain_minimal(
+                input_ids = outputs[0].tolist(),    # answer no es, tiene que ser con el input
                 layer_stride = 1,
-                token_range = token_range,
+                token_range = token_range,   # or 2, or 4—whatever you decide
             )
             
-            # Get ground truth answer logprob throughout the layers
-            log_probs = lens_output.log_probs
-            if isinstance(log_probs, torch.Tensor):
-                lp = log_probs.detach().cpu().numpy()
-            else:
-                lp = log_probs
-            entropy = lens_output.entropy().stats
-            forward_kl = lens_output.forward_kl().stats
+            # Parse output
+            lp = lens_output["log_probs"]
+            entropy = lens_output["entropy"]
+            forward_kl = lens_output["forward_kl"]
             
             # Get log probs of the solution
             ground_enc_ids = tokenizer(ground_truth_answer, add_special_tokens = False)['input_ids']   
@@ -349,7 +352,7 @@ def main():
                 offset = input_len + 1
             if (answer['answer_token_ids'] is not None) and (ground_enc_ids is not None):   # Fix nonetype error when creating zip
                 for idx, ground_id in zip(answer['answer_token_idxs'], ground_enc_ids): # zip takes the shortest vec length
-                    ground_log_probs.append(log_probs[:, idx - offset, ground_id])   # el -input_len-1 ha sido checked manualmente
+                    ground_log_probs.append(lp[:, idx - offset, ground_id])   # el -input_len-1 ha sido checked manualmente
             else:
                 ground_log_probs = None
                 
@@ -359,16 +362,16 @@ def main():
                 layer_avg_logprob   = stacked_lp.mean(axis=1)                 # (num_layers,)
             else:
                 # fall‑back if something went weird (shouldn’t normally happen)
-                layer_avg_logprob   = np.full((log_probs.shape[0],), float('nan'))
+                layer_avg_logprob   = np.full((lp.shape[0],), float('nan'))
             
             # Get topk final token log probs
             topk_offset = 1 # I'm using output_ids and token_range so no need to do anything about last_tokens_lp
             topk_final_log_probs, topk_final_ids, topk_final_tokens = get_topk_final_log_probs(
-                outputs[0][token_range[0]+topk_offset:token_range[1]], log_probs[:,:-topk_offset,:], tokenizer, topk=10 # Watch out, they don't match otherwise
+                outputs[0][token_range[0]+topk_offset:token_range[1]], lp[:,:-topk_offset,:], tokenizer, topk=10 # Watch out, they don't match otherwise
             )    
             
             # Get topk log probs by layer # log_probs -> (layers, seq_len, vocab)
-            topk_logp, topk_idx  = torch.from_numpy(log_probs).topk(k=10, dim=-1)      # same shape but …,topk
+            topk_logp, topk_idx  = torch.from_numpy(lp).topk(k=10, dim=-1)      # same shape but …,topk
             flat                 = tokenizer.batch_decode(topk_idx.flatten())
             topk_tokens          = np.array(flat, dtype=object).reshape(topk_idx.shape)
             
@@ -383,7 +386,7 @@ def main():
                 qid               = str(i).zfill(6).split('/')[-1].replace('.json',''),
                 question          = input_text,
                 ground_answer_text= ground_truth_answer,
-                model_answers_text= [output_full],
+                model_answers_text= [output_str],
                 extracted_model_answers=[answer["numeric"]],
                 extracted_ground_answer=ground_enc_ids,
                 majority_answer   = answer["numeric"],
