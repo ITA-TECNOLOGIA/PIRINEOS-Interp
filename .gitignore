@@ -19,6 +19,7 @@ outputs*.txt
 *.log
 *.png
 *.html
+*.json
 
 nohup.out
 *.out

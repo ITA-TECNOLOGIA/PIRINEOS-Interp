@@ -412,6 +412,9 @@ def run_eval(args):
                 # Pero el start_len es para lo que paso al lp que sí que tiene el input_len porque son los output_ids
             else:
                 offset = 1  
+            #! Aquí ya es tarde pero podría haber tomado en vez de ground_truth, el obtenido por el modelo
+            #! para evitarme errores con el latex. Ya que solo voy a usar los correctos en el análisis. Ya tarde
+            #! A una mala, usar en el notebook solo los que coincide el texto de output y ground
             for i, ground_id in zip(range(real_sol_start_idx, real_sol_stop_idx), ground_truth_noboxed):  # TODO DEBUG +1
                 ground_log_probs.append(lp[:, i - offset, ground_id]) # TODO DEBUG
                 print(lp[-1, i-offset, output_tokens[i]])
