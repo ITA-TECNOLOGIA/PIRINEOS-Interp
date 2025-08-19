@@ -303,7 +303,6 @@ def main():
         seq_len = outputs.size(1)
         
         # Get inputs for the IG
-        # TODO watch out for outputs shape
         attention_mask = outputs.new_ones(outputs.shape)  # Create attention mask for the full sequence
         embeds = model.get_input_embeddings()(outputs).detach()   # Get the embeddings for the full sequence
         embeds.requires_grad_()  # Make sure gradients are enabled for the embeddings
@@ -385,7 +384,6 @@ def main():
         question = example['question']
 
         # 2) Save
-        # TODO añade para cada use case
         saver.add(
             qid=qid,
             question=input_text,    # Pongo la input prompt instead of question text

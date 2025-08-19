@@ -102,9 +102,7 @@ class TunedLens:
             layer_stride (int): The stride to use when plotting the layers.
             token_range (tuple or list): A two-element tuple/list specifying the start and end token indices.
                                          If None, the full token sequence is used.
-                                         
-        Returns:
-            # TODO: return?
+                                        
         """
         # Tokenize input and prepare targets
         if input_ids is None:
