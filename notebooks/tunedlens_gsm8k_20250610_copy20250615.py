@@ -20,7 +20,9 @@ from eval_gsm8k.utils import extract_predicted_answer
 
 os.chdir('..')
 
-access_token = "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"
+access_token = os.environ.get('HF_TOKEN', None)
+if access_token is None:
+    raise ValueError("Please set the HF_TOKEN environment variable with your Hugging Face token.")
 login(token=access_token, add_to_git_credential=True)
 
 

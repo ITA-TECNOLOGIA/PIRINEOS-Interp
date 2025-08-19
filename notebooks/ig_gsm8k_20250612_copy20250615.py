@@ -280,7 +280,6 @@ print("Pairwise for rs_mean:")
 print(pairwise_stats(target_logp_df, 'rs_mean', pairs), "\n")
 
 
-# 🎯 What This Tells You
 # ✅ 1. Hypothesis supported: Finetuned models (grpo, distil) focus more on reasoning.
 # This is true both in total share (RS_abs) and in per-token influence (RS_mean).
 # 
@@ -298,8 +297,7 @@ print(pairwise_stats(target_logp_df, 'rs_mean', pairs), "\n")
 # 
 # 🧠 Suggested framing for your paper:
 # "Finetuned models increasingly allocate attribution to reasoning segments, with Distil showing the strongest shift (RS_mean median +0.19, p < 1e−130). This confirms our hypothesis that RL and distillation push models to rely more heavily on their generated rationales. However, the signed attribution (RS_net) reveals that this increased focus is not uniformly beneficial: reasoning tokens often reduce confidence in the correct answer, suggesting that the model’s internal reasoning may be misleading or misaligned."
-# 
-# Let me know if you’d like a version of this as a figure caption or section write-up!
+
 
 # In[11]:
 
