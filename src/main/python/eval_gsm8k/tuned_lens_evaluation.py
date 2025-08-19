@@ -17,6 +17,7 @@ from eval_gsm8k.utils import (
     extract_predicted_answer,
     extract_ground_truth
 )
+from eval_gsm8k.results_saver import ResultSaver
 from datasets import load_dataset
 from collections import Counter
 import json
@@ -26,7 +27,6 @@ from explainability.models import LLMConfig
 from explainability.models import DefaultHFModelLoader, BnBQuantizedModelLoader
 from explainability.tuned_lens import TunedLens
 
-from eval_MATH.results_saver import ResultSaver
 
 def save_tensors(sample_id: int,
                  lens_answers: list[dict[str, np.ndarray]],
