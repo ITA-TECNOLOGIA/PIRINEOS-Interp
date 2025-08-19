@@ -53,8 +53,6 @@ class IGTokenwise:
         
         # get the token-level attributions by summing the attributions across the hidden dimension
         token_level_attributions = attributions.sum(dim=-1)  # shape: [batch_size, seq_len]
-        # TODO Consider alternatives to sum. Or even summing meaning/position/context dimensions only!
-        # TODO Not easy though, requires interpreting the token embeddings
         # Now take ths 0 in batch size (input sample) and print the attributions
         tokens = self.tokenizer.convert_ids_to_tokens(input_ids[0])
         for token_str, score in zip(tokens, token_level_attributions[0].tolist()):
@@ -87,8 +85,6 @@ class IGTokenwise:
         
         # get the token-level attributions by summing the attributions across the hidden dimension
         token_level_attributions = attributions.sum(dim=-1)  # shape: [batch_size, seq_len]
-        # TODO Consider alternatives to sum. Or even summing meaning/position/context dimensions only!
-        # TODO Not easy though, requires interpreting the token embeddings
         # Now take ths 0 in batch size (input sample) and print the attributions
         tokens = self.tokenizer.convert_ids_to_tokens(input_ids[0])
         for token_str, score in zip(tokens, token_level_attributions[0].tolist()):
