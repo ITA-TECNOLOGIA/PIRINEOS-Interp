@@ -25,7 +25,6 @@ class IGEval:
         Load the Integrated Gradients with the provided forward function.
         Can be used to reuse the model for different forward functions.
         Forward function must be defined within the class itself. 
-        # TODO: Change this to forward function being a wrapper class or something better.
         
         Args:
             forward_func: The forward function to be used for attribution.

@@ -1,6 +1,3 @@
-# WORK IN PROGRESS
-# TODO NOT DONE, missing forward_func
-
 import torch
 from captum.attr import IntegratedGradients
 

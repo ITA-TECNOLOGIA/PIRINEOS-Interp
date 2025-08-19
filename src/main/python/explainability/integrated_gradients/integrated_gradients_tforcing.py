@@ -22,7 +22,6 @@ class IGTForcing:
         Load the Integrated Gradients with the provided forward function.
         Can be used to reuse the model for different forward functions.
         Forward function must be defined within the class itself. 
-        # TODO: Change this to forward function being a wrapper class or something better.
         
         Args:
             forward_func: The forward function to be used for attribution.
@@ -81,9 +80,7 @@ class IGTForcing:
         
         # get the token-level attributions by summing the attributions across the hidden dimension
         input_attributions = attributions[:, :prompt_length, :]  # shape: [num_trials = 1, prompt_length, hidden_dim]
-        token_level_attributions = input_attributions.sum(dim=-1)  # shape: [batch_size, full_length] #! Ojo que no solo inputs :o 
-        # TODO Consider alternatives to sum. Or even summing meaning/position/context dimensions only!
-        # TODO Not easy though, requires interpreting the token embeddings
+        token_level_attributions = input_attributions.sum(dim=-1)  # shape: [batch_size, full_length]
         # Now take ths 0 in batch size (input sample) and print the attributions
         tokens = self.tokenizer.convert_ids_to_tokens(input_ids[0])
         print(f"Output generated: {self.tokenizer.decode(generated_tokens[0])}")
@@ -104,9 +101,6 @@ class IGTForcing:
         
         # Get the forced token ids
         #forced_token_ids = torch.argmax(full_embeds, dim=-1)    # shape: [batch_size, full_length] Instead of batch size, it is internal batch size
-        #! Me preocupa que son siempre el mismo. Esto no debería ser así, no? Debería se cada uno el que haya puesto
-        #! los IG, que es la trayectoria. Más que nada porque si no, con el teacher forcing lo estoy seleccionando al
-        #! final solo los tokens que son estos ids, podría verse afectado todo.
         # Al final esque como estoy con el forcing, debería ver el mismo output a lo largo de la trayectoria, no?
         # Porque seleccionar los token ids forma parte de la F también. Al menos al comparar la generación de texto
         # con los classifiers.
@@ -120,10 +114,9 @@ class IGTForcing:
         gen_logits = log_probs[:, prompt_length-1:full_length-1, :]  # shape: [batch, num_gen_tokens, vocab_size]
 
         # Now pick out the log-probs of the forced tokens
-        batch_size, num_gen_tokens = gen_token_ids.shape    # TODO Does this take into account the end token? A: Yes, because gen output ends at end token and we take it for all the trajectory.
+        batch_size, num_gen_tokens = gen_token_ids.shape 
         range_batch = torch.arange(batch_size).unsqueeze(-1)
         forced_token_log_probs = gen_logits[range_batch, torch.arange(num_gen_tokens), gen_token_ids]   # The first two dimensions actually could just be :
-        # TODO check if this is right (?) Is it right to just select gen_token_ids or do I have to decode something?
 
         # Sum or average them
         avg_log_probs = forced_token_log_probs.sum(dim=-1) / num_gen_tokens # doubt this is right
@@ -156,7 +149,7 @@ class IGTForcing:
         gen_entropy = entropy[:, prompt_length-1:full_length-1]  # shape: [batch, num_gen_tokens, vocab_size]
 
         # Now pick out the log-probs of the forced tokens
-        batch_size, num_gen_tokens = gen_token_ids.shape    # TODO Does this take into account the end token? A: Yes, because gen output ends at end token and we take it for all the trajectory.
+        batch_size, num_gen_tokens = gen_token_ids.shape    
         range_batch = torch.arange(batch_size).unsqueeze(-1)
         forced_token_entropy = gen_entropy[range_batch, torch.arange(num_gen_tokens)]   # The first two dimensions actually could just be :
 

@@ -320,7 +320,7 @@ def main():
             # Get the output tokens, just like in MATH
             output_tokens = get_model_output(inputs['input_ids'][0], outputs[0], tokenizer)
             # Print this iteration
-            output_str = tokenizer.decode(output_tokens)   # TODO me quedé aquí
+            output_str = tokenizer.decode(output_tokens)
             # after generation, your `outputs` has shape (1, seq_len)
             seq_len = outputs.size(1)
             # the newly generated tokens are at positions [input_len, seq_len)
