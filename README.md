@@ -1,6 +1,6 @@
-# Characterizing Reasoning Models with Layer‑Wise Metrics from Probing and Attributions
+# PIRINEOS-Interp (*Probing & Interpreting Reasoning In Neural Entropy with Outputs & Statistics*)
 
-**Code & data for our NeurIPS 2025 Mechanistic Interpretability Workshop submission.**
+**Code & data for our NeurIPS 2025 Mechanistic Interpretability Workshop submission.** -> *Characterizing Reasoning Models with Layer‑Wise Metrics from Probing and Attributions*
 We study how **reasoning** emerges in LLMs using two complementary, activation‑level methods:
 
 1. **Tuned‑Lens probing** — to quantify how intermediate layer predictions and calibration shift across models (base vs. RL‑fine‑tuned vs. distilled).
@@ -34,40 +34,7 @@ Target models and benchmark:
 
 ---
 
-## Quickstart (sanity check in <10 minutes)
-
-> Useful for reviewers: runs a short, quantized pass on the base model to verify the stack.
-
-```bash
-# 1) Create & activate environment
-conda create -n qwen-tunedlens-ig python=3.11 -y
-conda activate qwen-tunedlens-ig
-
-# 2) Install core deps (PyTorch must match your CUDA; example below is CUDA 12.1/12.2)
-pip install torch==2.6.0 torchvision==0.21.0 --extra-index-url https://download.pytorch.org/whl/cu121
-pip install -r requirements.txt
-
-# 3) Initialize submodules (Tuned Lens & Captum fork)
-git submodule update --init --recursive
-
-# 4) (If using private or gated models) Set your Hugging Face token securely
-export HF_TOKEN=***your_hf_token***
-
-# 5) Run a small quantized IG pass on the base model
-export CUDA_VISIBLE_DEVICES=0
-python src/main/python/eval_gsm8k/ig_evaluation.py \
-  --model Qwen/Qwen2.5-14B \
-  --max-new-tokens 256 \
-  --n-steps 10 \
-  --internal-batch-size 1 \
-  --quantized
-```
-
-If this finishes and saves outputs (see `logs/` or your terminal), your environment is set.
-
----
-
-## Full Setup
+## Setup
 
 ### 1) Python & CUDA
 
@@ -78,7 +45,7 @@ conda create -n qwen-tunedlens-ig python=3.11 -y
 conda activate qwen-tunedlens-ig
 
 # PyTorch for CUDA 12.1/12.2 (adjust if your CUDA differs)
-pip install torch==2.6.0 torchvision==0.21.0 --extra-index-url https://download.pytorch.org/whl/cu121
+pip install torch==2.6.0 torchvision==0.21.0
 ```
 
 ### 2) Core libraries
@@ -94,22 +61,8 @@ We rely on:
 Install everything:
 
 ```bash
-# If you plan to use Open-R1 utilities
-git clone https://github.com/huggingface/open-r1.git
-cd open-r1
-pip install -e ".[dev]"
-cd -
-
-# vLLM (CUDA 12.x wheel index line may already be set by torch above)
-pip install -q vllm==0.6.6.post1
-pip install -q vllm==0.6.6.post1 --extra-index-url https://download.pytorch.org/whl/cu121
-
 # Project requirements
 pip install -r requirements.txt
-
-# Tuned Lens from PyPI + Plotly pin for heatmaps
-pip install tuned-lens
-pip install plotly==5.13.1
 ```
 
 ### 3) Submodules (Captum & Tuned‑Lens forks)
@@ -132,8 +85,14 @@ cd tuned-lens-ITA && pip install -e . && cd -
 * **Models**:
 
   * Base: `Qwen/Qwen2.5-14B`
-  * RL‑fine‑tuned (GRPO): `outputs/Qwen2_5_14B_GRPO/checkpoint-1500`
+  * RL‑fine‑tuned (GRPO): `outputs/Qwen2_5_14B_GRPO/checkpoint-1500` (trained with `notebooks/Qwen2_5_(14B)_GRPO.py`)
   * Distilled: `deepseek-ai/DeepSeek-R1-Distill-Qwen-14B`
+
+### Tuned-Lens Weights
+
+We provide layer-wise Tuned-Lens weights for `Qwen/Qwen2.5-14B` in the followingHugging Face repo: `nq7z3kdm/Qwen2.5-14B-Lens`.
+
+These weights were trained on the test split of The Pile. They are released for interpretability and qualitative analysis. They have to be available in the `my_lenses` folder inside Tuned-Lens, as Qwen2.5 wasn't supported by default.
 
 ---
 
