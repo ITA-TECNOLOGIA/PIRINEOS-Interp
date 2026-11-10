@@ -1,6 +1,7 @@
 # PIRINEOS-Interp (*Probing & Interpreting Reasoning In Neural Entropy with Outputs & Statistics*)
 
-**Code & data for our NeurIPS 2025 Mechanistic Interpretability Workshop submission.** -> *Characterizing Reasoning Models with Layer‑Wise Metrics from Probing and Attributions*
+**Code & data for our xAI 2026 Late-Breaking Work paper:** *Delayed Convergence and Emergent CoT Reliance in RL-Tuned Language Models*
+Presented at the Late-Breaking Work, Demos and Doctoral Consortium track colocated with the **4th World Conference on eXplainable Artificial Intelligence (xAI 2026)**, Fortaleza, Brazil, July 1–3, 2026.
 We study how **reasoning** emerges in LLMs using two complementary, activation‑level methods:
 
 1. **Tuned‑Lens probing** — to quantify how intermediate layer predictions and calibration shift across models (base vs. RL‑fine‑tuned vs. distilled).
@@ -226,7 +227,21 @@ Paths are configurable in the scripts; by default, logs go to `logs/` if you use
 
 ---
 
+## Acknowledgements
+
+The authors gratefully acknowledge the Instituto Tecnológico de Aragón (ITA) for providing high-performance-computing resources and expert technical support. This research was funded by the Spanish Ministry of Science and Innovation through the 2022 Public–Private Collaboration Programme, grant CPP2022-009790 (MAGELLAN: Design and deployment of a SaaS behavioural engine based on the ETR® AGI architecture).
+
+All product names, trademarks and registered trademarks are property of their respective owners; their use herein does not imply endorsement.
+
+<p align="center">
+  <img src="docs/logos/funding_logos.jpg" alt="Ministerio de Ciencia, Innovación y Universidades · Financiado por la Unión Europea NextGenerationEU · Plan de Recuperación, Transformación y Resiliencia · Agencia Estatal de Investigación" width="700">
+</p>
+
+---
+
 ## License
+
+© 2026 Copyright for this paper by its authors. Use permitted under Creative Commons License Attribution 4.0 International (CC BY 4.0).
 
 Third‑party components retain their original licenses.
 
